@@ -11,7 +11,8 @@ import torch.optim as optim
 from tqdm import tqdm
 import os
 
-train_set = data.CustomDataset('data.csv')
+total_set = data.CustomDataset('data.csv')
+train_set,val_set = torch.utils.data.random_split(train_db, [50000, 10000])
 train_dataset = DataLoader(
     dataset=train_set, num_workers=4, batch_size=64, shuffle=True, drop_last=True)
 
@@ -26,6 +27,7 @@ lr = 5e-5
 weight = 10  # control loss function
 
 optimizer = optim.Adam(model.parameters(), lr=lr)
+scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=20,gamma=0.5)
 
 criterion_1 = nn.BCELoss().to(device)  # loss function for PCL
 criterion_2 = nn.BCELoss().to(device)
@@ -77,7 +79,7 @@ def train(epoch):
         # loss1.backward()
         # print(feature_v.shape)
         # print(feature_v)
-
+    scheduler.step()
 
 def save_checkpoint(epoch):
     if not os.path.exists("checkpoint"):
