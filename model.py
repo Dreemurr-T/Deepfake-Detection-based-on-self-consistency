@@ -25,7 +25,7 @@ class Self_Consistency(nn.Module):
         self.act1 = nn.Sigmoid()
 
         channels_in = resnet34.fc.in_features
-        binary_num = 2
+        binary_num = 1
 
         self.avg = nn.Sequential(
             resnet34.layer4,
