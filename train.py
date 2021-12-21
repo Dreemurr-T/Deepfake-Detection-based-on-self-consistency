@@ -12,13 +12,19 @@ from tqdm import tqdm
 import os
 
 total_set = data.CustomDataset('data.csv')
-train_set,val_set = torch.utils.data.random_split(train_db, [50000, 10000])
+# print(len(total_set))
+batch_size = 32
+train_set, val_set = torch.utils.data.random_split(total_set, [5551, 448])
 train_dataset = DataLoader(
-    dataset=train_set, num_workers=4, batch_size=64, shuffle=True, drop_last=True)
+    dataset=train_set, num_workers=4, batch_size=batch_size, shuffle=True, drop_last=True)
+val_dataset = DataLoader(
+    dataset=val_set, num_workers=4, batch_size=batch_size, shuffle=False, drop_last=True)
+
+# print(len(train_dataset),len(val_dataset))
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print(device)
-batch_size = 64
+
 
 model = Self_Consistency(batch_size).to(device)
 
@@ -27,10 +33,12 @@ lr = 5e-5
 weight = 10  # control loss function
 
 optimizer = optim.Adam(model.parameters(), lr=lr)
-scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=20,gamma=0.5)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
 
 criterion_1 = nn.BCELoss().to(device)  # loss function for PCL
-criterion_2 = nn.BCELoss().to(device)
+criterion_2 = nn.BCELoss().to(device)  # loss function for CLS
+
+best_acc = 0  # used for saving best model
 
 
 def loss_func(loss1, loss2):
@@ -41,6 +49,9 @@ def loss_func(loss1, loss2):
 def train(epoch):
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     # print(model)
+    PCL_Loss = 0
+    CLS_Loss = 0
+    LOSS = 0
     for (i, train_data) in enumerate(train_dataset):
         # model.zero_grad()
         optimizer.zero_grad()
@@ -49,7 +60,7 @@ def train(epoch):
         label = train_data[2].to(device).float()
 
         # label = label.reshape(label.shape[0],1)
-        print(label)
+        # print(label)
         in_image = Variable(in_image)
         volumn = Variable(volumn)
         label = Variable(label)
@@ -60,36 +71,68 @@ def train(epoch):
         volumn_1, label_1 = model(in_image)
         label_1 = label_1.squeeze().float()
         volumn_1 = volumn_1.float()
-        print(label_1)
-        # gt = torch.load('GT_Volume/deepfakes/000_003/0000.pt').float().to(device)
+        # print(label_1)
         loss1 = criterion_1(volumn_1, volumn)
         loss2 = criterion_2(label_1, label)
         loss = loss_func(loss1, loss2)
+        PCL_Loss += loss1.item()
+        CLS_Loss += loss2.item()
+        LOSS += loss.item()
         loss.backward()
         optimizer.step()
-        print('=> Epoch[{}]({}/{}): PCL_Loss: {:.4f} CLS_Loss: {:.4f} Total_loss: {:.4f}'.format(
-            epoch,
-            i,
-            len(train_dataset),
-            loss1.item(),
-            loss2.item(),
-            loss.item()
-        ))
-        # print(loss1, label_1)
-        # loss1.backward()
-        # print(feature_v.shape)
-        # print(feature_v)
+
+    print('=> Epoch[{}]: PCL_Loss: {:.4f} CLS_Loss: {:.4f} train_loss: {:.4f}'.format(
+        epoch,
+        PCL_Loss/len(train_dataset),
+        CLS_Loss/len(train_dataset),
+        LOSS/len(train_dataset)
+    ))
     scheduler.step()
 
-def save_checkpoint(epoch):
+
+def validation(epoch):
+    val_acc = []
+    acc_sum = 0
+    model.eval()
+    with torch.no_grad():
+        for (i, val_data) in enumerate(val_dataset):
+            in_image = val_data[0].to(device)
+            volumn = val_data[1].to(device).squeeze().float()
+            label = val_data[2].to(device).float()
+            in_image = Variable(in_image)
+            volumn = Variable(volumn)
+            label = Variable(label)
+            volumn_1, label_1 = model(in_image)
+            label_1 = label_1.squeeze().float()
+            volumn_1 = volumn_1.float()
+            loss1 = criterion_1(volumn_1, volumn)
+            loss2 = criterion_2(label_1, label)
+            loss = loss_func(loss1, loss2)
+            label_1 = torch.round(label_1)
+            acc = 0
+            for index in range(label_1.shape[0]):
+                if label[index] == label_1[index]:
+                    acc += 1
+            val_acc.append(acc)
+        for acc in val_acc:
+            acc_sum += acc
+        acc_sum /= 448
+        print('Validation accuracy: {:.4f}'.format(acc_sum))
+    return acc_sum
+
+
+def save_checkpoint(val_acc):
+    global best_acc
     if not os.path.exists("checkpoint"):
         os.mkdir("checkpoint")
-    output_path = 'checkpoint/model_epoch_{}.pth'.format(int(epoch+1))
-    torch.save(model, output_path)
+    if best_acc < val_acc:
+        best_acc = val_acc
+        torch.save(model, 'checkpoint/best_acc_model.pt')
 
 
 if __name__ == '__main__':
     for epoch in tqdm(range(epochs)):
         train(epoch)
-        if epoch % 50 == 0 or epoch == epochs-1:
-            save_checkpoint(epoch)
+        val_acc = validation(epoch)
+        save_checkpoint(val_acc)
+    print('Best model accuracy is: {:.4f}'.format(best_acc))

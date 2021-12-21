@@ -11,7 +11,7 @@ class CustomDataset(Dataset):
         self.vol_list = self.path_info.loc[:,'volumn']
         self.label_list = self.path_info.loc[:,'label']
 
-        self.data_len = len(self.path_info.index) - 1
+        self.data_len = len(self.path_info.index)
     
     def __getitem__(self,index):
         img_path = self.image_list[index]
