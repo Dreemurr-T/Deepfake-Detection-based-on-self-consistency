@@ -11,12 +11,14 @@ import torch.optim as optim
 from tqdm import tqdm
 import os
 
+from torch.utils.tensorboard import SummaryWriter
+
 total_set = data.CustomDataset('data.csv')
 # print(len(total_set))
-batch_size = 32
-train_set, val_set = torch.utils.data.random_split(total_set, [5551, 448])
+batch_size = 64
+train_set, val_set = torch.utils.data.random_split(total_set, [5359, 640])
 train_dataset = DataLoader(
-    dataset=train_set, num_workers=4, batch_size=batch_size, shuffle=True, drop_last=True)
+    dataset=total_set, num_workers=4, batch_size=batch_size, shuffle=True, drop_last=True)
 val_dataset = DataLoader(
     dataset=val_set, num_workers=4, batch_size=batch_size, shuffle=False, drop_last=True)
 
@@ -28,12 +30,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = Self_Consistency(batch_size).to(device)
 
-epochs = 200
+epochs = 150
 lr = 5e-5
 weight = 10  # control loss function
 
 optimizer = optim.Adam(model.parameters(), lr=lr)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
 
 criterion_1 = nn.BCELoss().to(device)  # loss function for PCL
 criterion_2 = nn.BCELoss().to(device)  # loss function for CLS
@@ -87,6 +89,7 @@ def train(epoch):
         CLS_Loss/len(train_dataset),
         LOSS/len(train_dataset)
     ))
+    writer.add_scalar('Train/Loss', LOSS, epoch)
     scheduler.step()
 
 
@@ -109,6 +112,7 @@ def validation(epoch):
             loss2 = criterion_2(label_1, label)
             loss = loss_func(loss1, loss2)
             label_1 = torch.round(label_1)
+            print(label_1,label)
             acc = 0
             for index in range(label_1.shape[0]):
                 if label[index] == label_1[index]:
@@ -116,23 +120,28 @@ def validation(epoch):
             val_acc.append(acc)
         for acc in val_acc:
             acc_sum += acc
-        acc_sum /= 448
+        acc_sum /= 640
         print('Validation accuracy: {:.4f}'.format(acc_sum))
+    writer.add_scalar('Val/Acc', acc_sum, epoch)
     return acc_sum
 
 
-def save_checkpoint(val_acc):
+def save_checkpoint(val_acc, epoch):
     global best_acc
     if not os.path.exists("checkpoint"):
         os.mkdir("checkpoint")
-    if best_acc < val_acc:
+    if best_acc <= val_acc:
         best_acc = val_acc
-        torch.save(model, 'checkpoint/best_acc_model.pt')
+        torch.save(model.state_dict(), 'checkpoint/best_acc_model.pth')
+    if (epoch + 1) % 50 == 0:
+        torch.save(model.state_dict(),
+                   'checkpoint/model_epoch_{}.pth'.format(epoch+1))
 
 
 if __name__ == '__main__':
+    writer = SummaryWriter('./log')
     for epoch in tqdm(range(epochs)):
         train(epoch)
         val_acc = validation(epoch)
-        save_checkpoint(val_acc)
+        save_checkpoint(val_acc, epoch)
     print('Best model accuracy is: {:.4f}'.format(best_acc))
