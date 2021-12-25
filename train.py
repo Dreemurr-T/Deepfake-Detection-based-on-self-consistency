@@ -11,6 +11,8 @@ import torch.optim as optim
 from tqdm import tqdm
 import os
 
+from torch.utils.tensorboard import SummaryWriter
+
 total_set = data.CustomDataset('data.csv')
 # print(len(total_set))
 batch_size = 32
@@ -28,12 +30,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = Self_Consistency(batch_size).to(device)
 
-epochs = 200
+epochs = 150
 lr = 5e-5
 weight = 10  # control loss function
 
 optimizer = optim.Adam(model.parameters(), lr=lr)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
 
 criterion_1 = nn.BCELoss().to(device)  # loss function for PCL
 criterion_2 = nn.BCELoss().to(device)  # loss function for CLS
